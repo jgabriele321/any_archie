@@ -1,9 +1,9 @@
 """
 AnyArchie Database Operations
-Simple PostgreSQL interface using psycopg2
+Simple PostgreSQL interface using psycopg3
 """
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
 from contextlib import contextmanager
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any
@@ -17,7 +17,7 @@ from config import DATABASE_URL
 @contextmanager
 def get_db():
     """Context manager for database connections"""
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     try:
         yield conn
         conn.commit()
@@ -28,17 +28,12 @@ def get_db():
         conn.close()
 
 
-def dict_cursor(conn):
-    """Get a cursor that returns dicts"""
-    return conn.cursor(cursor_factory=RealDictCursor)
-
-
 # ============ USERS ============
 
 def get_user_by_telegram_id(telegram_id: int) -> Optional[Dict]:
     """Get user by their Telegram ID"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM users WHERE telegram_id = %s",
                 (telegram_id,)
@@ -49,7 +44,7 @@ def get_user_by_telegram_id(telegram_id: int) -> Optional[Dict]:
 def get_user_by_bot_token(bot_token: str) -> Optional[Dict]:
     """Get user by their assigned bot token"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM users WHERE bot_token = %s",
                 (bot_token,)
@@ -60,7 +55,7 @@ def get_user_by_bot_token(bot_token: str) -> Optional[Dict]:
 def get_all_active_bot_tokens() -> List[str]:
     """Get all bot tokens that have users assigned"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute("SELECT DISTINCT bot_token FROM users")
             return [row['bot_token'] for row in cur.fetchall()]
 
@@ -68,7 +63,7 @@ def get_all_active_bot_tokens() -> List[str]:
 def create_user(telegram_id: int, bot_token: str, assistant_name: str = "Archie") -> Dict:
     """Create a new user with assigned bot"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO users (telegram_id, bot_token, assistant_name)
                    VALUES (%s, %s, %s) RETURNING *""",
@@ -86,7 +81,7 @@ def update_user(user_id: int, **kwargs) -> Optional[Dict]:
     values = list(kwargs.values()) + [user_id]
     
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 f"UPDATE users SET {fields} WHERE id = %s RETURNING *",
                 values
@@ -97,7 +92,7 @@ def update_user(user_id: int, **kwargs) -> Optional[Dict]:
 def is_bot_token_assigned(bot_token: str) -> bool:
     """Check if a bot token is already assigned to a user"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "SELECT 1 FROM users WHERE bot_token = %s LIMIT 1",
                 (bot_token,)
@@ -110,7 +105,7 @@ def is_bot_token_assigned(bot_token: str) -> bool:
 def get_context(user_id: int, key: str) -> Optional[str]:
     """Get a context value for a user"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "SELECT value FROM context WHERE user_id = %s AND key = %s",
                 (user_id, key)
@@ -122,7 +117,7 @@ def get_context(user_id: int, key: str) -> Optional[str]:
 def set_context(user_id: int, key: str, value: str) -> None:
     """Set a context value (upsert)"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO context (user_id, key, value)
                    VALUES (%s, %s, %s)
@@ -135,7 +130,7 @@ def set_context(user_id: int, key: str, value: str) -> None:
 def get_all_context(user_id: int) -> Dict[str, str]:
     """Get all context for a user as a dict"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "SELECT key, value FROM context WHERE user_id = %s",
                 (user_id,)
@@ -149,7 +144,7 @@ def add_task(user_id: int, content: str, due_date: Optional[date] = None,
              priority: int = 0, category: Optional[str] = None) -> Dict:
     """Add a new task"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO tasks (user_id, content, due_date, priority, category)
                    VALUES (%s, %s, %s, %s, %s) RETURNING *""",
@@ -161,7 +156,7 @@ def add_task(user_id: int, content: str, due_date: Optional[date] = None,
 def get_tasks(user_id: int, status: str = "pending") -> List[Dict]:
     """Get tasks for a user by status"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """SELECT * FROM tasks 
                    WHERE user_id = %s AND status = %s
@@ -174,7 +169,7 @@ def get_tasks(user_id: int, status: str = "pending") -> List[Dict]:
 def get_tasks_due_today(user_id: int) -> List[Dict]:
     """Get tasks due today (or overdue)"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """SELECT * FROM tasks 
                    WHERE user_id = %s AND status = 'pending' 
@@ -188,7 +183,7 @@ def get_tasks_due_today(user_id: int) -> List[Dict]:
 def complete_task(task_id: int) -> Optional[Dict]:
     """Mark a task as done"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """UPDATE tasks SET status = 'done', completed_at = NOW()
                    WHERE id = %s RETURNING *""",
@@ -210,7 +205,7 @@ def delete_task(task_id: int) -> bool:
 def add_reminder(user_id: int, message: str, remind_at: datetime) -> Dict:
     """Add a reminder"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO reminders (user_id, message, remind_at)
                    VALUES (%s, %s, %s) RETURNING *""",
@@ -222,7 +217,7 @@ def add_reminder(user_id: int, message: str, remind_at: datetime) -> Dict:
 def get_pending_reminders() -> List[Dict]:
     """Get all reminders that should be sent now"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """SELECT r.*, u.bot_token, u.telegram_id, u.assistant_name
                    FROM reminders r
@@ -246,7 +241,7 @@ def mark_reminder_sent(reminder_id: int) -> None:
 def get_user_reminders(user_id: int) -> List[Dict]:
     """Get pending reminders for a user"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """SELECT * FROM reminders 
                    WHERE user_id = %s AND sent = FALSE
@@ -261,7 +256,7 @@ def get_user_reminders(user_id: int) -> List[Dict]:
 def add_message(user_id: int, role: str, content: str) -> Dict:
     """Add a message to conversation history"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO conversations (user_id, role, content)
                    VALUES (%s, %s, %s) RETURNING *""",
@@ -273,7 +268,7 @@ def add_message(user_id: int, role: str, content: str) -> Dict:
 def get_conversation_history(user_id: int, limit: int = 20) -> List[Dict]:
     """Get recent conversation history"""
     with get_db() as conn:
-        with dict_cursor(conn) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """SELECT role, content FROM conversations 
                    WHERE user_id = %s

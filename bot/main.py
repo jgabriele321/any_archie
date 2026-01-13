@@ -1,6 +1,10 @@
 """
 AnyArchie Main Bot Router
 Handles multiple Telegram bots via long polling
+
+Supports two modes:
+1. Hub mode: Users sign up via Hub bot, get assigned personal bot
+2. Direct mode: Users message their personal bot directly, auto-created on first message
 """
 import asyncio
 import signal
@@ -122,6 +126,7 @@ async def handle_hub_message(client: httpx.AsyncClient, message: dict) -> None:
 async def handle_user_message(client: httpx.AsyncClient, token: str, message: dict) -> None:
     """
     Handle messages to a user's personal bot.
+    In direct mode, auto-creates user on first message.
     """
     chat_id = message["chat"]["id"]
     telegram_id = message["from"]["id"]
@@ -132,11 +137,34 @@ async def handle_user_message(client: httpx.AsyncClient, token: str, message: di
     
     print(f"[USER BOT] Message from {telegram_id}: {text[:50]}...")
     
-    # Get user
+    # Get user by bot token
     user = db.get_user_by_bot_token(token)
     
+    # DIRECT MODE: If no user exists for this bot, check if this telegram_id 
+    # is messaging for the first time - auto-create them
     if not user:
-        await send_message(client, token, chat_id, "Error: User not found. Please start over at the Hub bot.")
+        # Check if user exists with different bot (shouldn't happen in direct mode)
+        existing_user = db.get_user_by_telegram_id(telegram_id)
+        if existing_user:
+            await send_message(client, token, chat_id, 
+                "You already have an assistant on a different bot!")
+            return
+        
+        # Auto-create user for this bot (DIRECT MODE)
+        print(f"[DIRECT MODE] Creating new user for telegram_id {telegram_id}")
+        user = db.create_user(telegram_id, token)
+        
+        # Start onboarding
+        message_text, _ = onboarding.get_onboarding_message("new")
+        await send_message(client, token, chat_id, message_text)
+        return
+    
+    # Verify this is the right user for this bot
+    if user['telegram_id'] != telegram_id:
+        # Someone else is messaging this bot - could be a problem
+        # For now, just ignore or warn
+        await send_message(client, token, chat_id,
+            "This bot is assigned to someone else. Please contact support.")
         return
     
     # Check if user is in onboarding
@@ -178,26 +206,33 @@ async def main_loop():
     global running
     
     print("AnyArchie starting...")
-    print(f"Hub bot token: {'configured' if HUB_BOT_TOKEN else 'MISSING'}")
+    
+    # Check if we're in Hub mode or Direct mode
+    hub_mode = bool(HUB_BOT_TOKEN)
+    print(f"Mode: {'Hub + Direct' if hub_mode else 'Direct only'}")
     print(f"Bot pool size: {len(BOT_TOKEN_POOL)}")
     
-    if not HUB_BOT_TOKEN:
-        print("ERROR: HUB_BOT_TOKEN not set!")
+    if not BOT_TOKEN_POOL:
+        print("ERROR: No bot tokens in BOT_TOKEN_POOL!")
         return
     
-    # Get active user bots
+    # Get active user bots (bots with users assigned)
     active_tokens = db.get_all_active_bot_tokens()
     print(f"Active user bots: {len(active_tokens)}")
+    
+    # In direct mode, we poll ALL bots in the pool (even unassigned ones)
+    # so new users can message them directly
+    tokens_to_poll = set(BOT_TOKEN_POOL)
     
     async with httpx.AsyncClient() as client:
         while running:
             try:
-                # Poll hub bot
-                await poll_bot(client, HUB_BOT_TOKEN, is_hub=True)
+                # Poll hub bot if configured
+                if hub_mode:
+                    await poll_bot(client, HUB_BOT_TOKEN, is_hub=True)
                 
-                # Poll all active user bots
-                active_tokens = db.get_all_active_bot_tokens()
-                for token in active_tokens:
+                # Poll all bots in the pool
+                for token in tokens_to_poll:
                     if not running:
                         break
                     await poll_bot(client, token, is_hub=False)

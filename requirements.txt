@@ -5,8 +5,7 @@
 python-telegram-bot==21.5
 
 # Database
-psycopg2-binary==2.9.9
-sqlalchemy==2.0.25
+psycopg[binary]==3.2.4
 
 # LLM
 openai==1.58.1

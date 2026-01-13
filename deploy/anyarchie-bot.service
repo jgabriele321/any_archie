@@ -1,0 +1,15 @@
+[Unit]
+Description=AnyArchie Telegram Bot
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=defibeats
+WorkingDirectory=/var/www/anyarchie
+ExecStart=/var/www/anyarchie/.venv/bin/python -m bot.main
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/var/www/anyarchie/.env
+
+[Install]
+WantedBy=multi-user.target
