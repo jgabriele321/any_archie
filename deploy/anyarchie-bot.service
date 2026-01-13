@@ -6,10 +6,14 @@ After=network.target postgresql.service
 Type=simple
 User=defibeats
 WorkingDirectory=/var/www/anyarchie
-ExecStart=/var/www/anyarchie/.venv/bin/python -m bot.main
+ExecStart=/var/www/anyarchie/.venv/bin/python -u -m bot.main
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 EnvironmentFile=/var/www/anyarchie/.env
+StandardOutput=journal
+StandardError=journal
+KillMode=mixed
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target

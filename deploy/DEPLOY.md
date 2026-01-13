@@ -64,8 +64,8 @@ EXA_API_KEY=your_key_here
 # Hub Bot Token (optional - not using for now)
 # HUB_BOT_TOKEN=
 
-# Bot Token Pool - Miranda's bot
-BOT_TOKEN_POOL=8220965830:AAHbTLFVwktGEXpyOeXva5I3NmSqi-v-pDw
+# Bot Token Pool - Add your bot tokens here (comma-separated)
+BOT_TOKEN_POOL=your_bot_token_here
 
 # Admin Telegram ID (Johnny's Telegram ID)
 ADMIN_TELEGRAM_ID=
