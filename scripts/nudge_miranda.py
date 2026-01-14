@@ -29,8 +29,8 @@ async def send_message(token: str, chat_id: int, text: str) -> bool:
 
 
 async def main():
-    # Miranda is user_id 2
-    user = db.get_user_by_id(2)
+    # Miranda's telegram_id
+    user = db.get_user_by_telegram_id(8506315004)
     
     if not user:
         print("User not found!")
