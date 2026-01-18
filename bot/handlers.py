@@ -177,11 +177,11 @@ def cmd_emails(user: dict, arg: str) -> str:
         return ("📧 Email not set up yet!\n\n"
                 "To enable email digests, contact support to add your Gmail credentials.")
     
-    # Parse hours argument (default 24, max 48)
+    # Parse hours argument (default 24, max 72)
     hours = 24
     if arg:
         try:
-            hours = min(int(arg.strip()), 48)
+            hours = min(int(arg.strip()), 72)
         except ValueError:
             pass
     
@@ -217,7 +217,8 @@ def cmd_help(assistant_name: str) -> str:
 
 **Email:**
 - `/emails` - Email digest (last 24 hours)
-- `/emails 48` - Email digest (last 48 hours)
+- `/emails 12` - Last 12 hours
+- `/emails 72` - Last 72 hours (3 days)
 
 **Other:**
 - `/search <query>` - Search the web
