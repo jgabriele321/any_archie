@@ -31,3 +31,4 @@ exports/
 # Database
 *.db
 *.sqlite
+credentials/
