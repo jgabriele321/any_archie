@@ -10,6 +10,7 @@ from . import llm
 from . import research
 from . import reminders as reminder_module
 from . import email_client
+from . import calendar_client
 
 
 def handle_command(user_id: int, text: str, user: dict) -> str:
@@ -48,6 +49,8 @@ def handle_command(user_id: int, text: str, user: dict) -> str:
             return cmd_search(arg)
         elif cmd == '/emails':
             return cmd_emails(user, arg)
+        elif cmd == '/calendar':
+            return cmd_calendar(user, arg)
         elif cmd == '/clear':
             return cmd_clear(user_id)
         elif cmd == '/help':
@@ -195,6 +198,37 @@ def cmd_emails(user: dict, arg: str) -> str:
     )
 
 
+def cmd_calendar(user: dict, arg: str) -> str:
+    """Get calendar digest"""
+    # Check if user has calendar configured
+    calendar_id = user.get('calendar_id')
+    credentials_path = user.get('calendar_credentials_path')
+    
+    if not calendar_id or not credentials_path:
+        return ("📅 Calendar not set up yet!\n\n"
+                "To enable calendar, contact support to connect your Google Calendar.")
+    
+    # Check if credentials file exists
+    import os
+    if not os.path.exists(credentials_path):
+        return "❌ Calendar credentials not found. Contact support."
+    
+    # Parse argument
+    arg = arg.strip().lower() if arg else ""
+    
+    if arg == "today":
+        return calendar_client.get_today_digest(credentials_path, calendar_id)
+    else:
+        # Default to 7 days, or parse number
+        days = 7
+        if arg:
+            try:
+                days = min(int(arg), 30)
+            except ValueError:
+                pass
+        return calendar_client.get_calendar_digest(credentials_path, calendar_id, days=days)
+
+
 def cmd_clear(user_id: int) -> str:
     """Clear conversation history"""
     count = db.clear_conversation_history(user_id)
@@ -219,6 +253,10 @@ def cmd_help(assistant_name: str) -> str:
 - `/emails` - Email digest (last 24 hours)
 - `/emails 12` - Last 12 hours
 - `/emails 72` - Last 72 hours (3 days)
+
+**Calendar:**
+- `/calendar` - Next 7 days
+- `/calendar today` - Today's schedule
 
 **Other:**
 - `/search <query>` - Search the web

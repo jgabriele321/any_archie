@@ -23,3 +23,7 @@ tenacity==9.0.0
 
 # Scheduling
 apscheduler==3.10.4
+
+# Google Calendar
+google-api-python-client==2.111.0
+google-auth==2.27.0
