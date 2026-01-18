@@ -9,6 +9,7 @@ from . import db
 from . import llm
 from . import research
 from . import reminders as reminder_module
+from . import email_client
 
 
 def handle_command(user_id: int, text: str, user: dict) -> str:
@@ -45,6 +46,8 @@ def handle_command(user_id: int, text: str, user: dict) -> str:
             return cmd_list_reminders(user_id)
         elif cmd == '/search':
             return cmd_search(arg)
+        elif cmd == '/emails':
+            return cmd_emails(user, arg)
         elif cmd == '/clear':
             return cmd_clear(user_id)
         elif cmd == '/help':
@@ -164,6 +167,34 @@ def cmd_search(query: str) -> str:
     return f"**Search Results for '{query}':**\n\n{results}"
 
 
+def cmd_emails(user: dict, arg: str) -> str:
+    """Get email digest"""
+    # Check if user has email configured
+    email_address = user.get('email_address')
+    app_password = user.get('email_app_password')
+    
+    if not email_address or not app_password:
+        return ("📧 Email not set up yet!\n\n"
+                "To enable email digests, contact support to add your Gmail credentials.")
+    
+    # Parse hours argument (default 24, max 48)
+    hours = 24
+    if arg:
+        try:
+            hours = min(int(arg.strip()), 48)
+        except ValueError:
+            pass
+    
+    imap_server = user.get('email_imap_server', 'imap.gmail.com')
+    
+    return email_client.get_email_digest(
+        email_address=email_address,
+        app_password=app_password,
+        hours=hours,
+        imap_server=imap_server
+    )
+
+
 def cmd_clear(user_id: int) -> str:
     """Clear conversation history"""
     count = db.clear_conversation_history(user_id)
@@ -183,6 +214,10 @@ def cmd_help(assistant_name: str) -> str:
 **Reminders:**
 - `/remind <time> <message>` - Set a reminder
 - `/reminders` - Show pending reminders
+
+**Email:**
+- `/emails` - Email digest (last 24 hours)
+- `/emails 48` - Email digest (last 48 hours)
 
 **Other:**
 - `/search <query>` - Search the web
