@@ -42,7 +42,9 @@ Just type:
 • /emails 12 - last 12 hours  
 • /emails 72 - last 3 days
 
-I'll show you the important ones and filter out the junk. Give it a try!"""
+I'll show you the important ones and filter out the junk. Give it a try!
+
+Type /help anytime to see everything I can do 🙂"""
 
     success = await send_message(user['bot_token'], user['telegram_id'], message)
     
