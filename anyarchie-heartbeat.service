@@ -1,0 +1,22 @@
+[Unit]
+Description=AnyArchie Heartbeat Worker - Proactive monitoring and check-ins
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=defibeats
+WorkingDirectory=/var/www/anyarchie
+Environment="PATH=/var/www/anyarchie/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/var/www/anyarchie/venv/bin/python3 -m bot.heartbeat_worker
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits
+MemoryLimit=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

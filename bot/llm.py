@@ -65,6 +65,66 @@ def chat(
         return f"Error: {str(e)}"
 
 
+def chat_with_vision(prompt: str, image_base64: str, model: str = "openai/gpt-4o") -> str:
+    """
+    Send a message with an image to LLM for vision analysis.
+    
+    Args:
+        prompt: Text prompt describing what to do with the image
+        image_base64: Base64 encoded image data
+        model: Model to use (defaults to GPT-4o for vision)
+    
+    Returns:
+        Model's text response
+    """
+    if not OPENROUTER_API_KEY:
+        return "Error: OpenRouter API key not configured."
+    
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{image_base64}"
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": prompt
+                }
+            ]
+        }
+    ]
+    
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://anyarchie.app",
+                    "X-Title": "AnyArchie"
+                },
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": 1024
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+    except httpx.TimeoutException:
+        return "Sorry, the request timed out. Please try again."
+    except httpx.HTTPStatusError as e:
+        return f"Error communicating with AI: {e.response.status_code}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
 def build_system_prompt(user_name: str, assistant_name: str, context: Dict[str, str]) -> str:
     """
     Build a personalized system prompt for the user.

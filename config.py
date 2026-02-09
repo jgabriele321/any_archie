@@ -20,7 +20,7 @@ EXA_API_KEY = os.getenv("EXA_API_KEY")
 
 # Telegram
 HUB_BOT_TOKEN = os.getenv("HUB_BOT_TOKEN")
-ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
+ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID") or "0")
 
 # Bot Token Pool - simple list from comma-separated env var
 _pool_str = os.getenv("BOT_TOKEN_POOL", "")
@@ -32,3 +32,6 @@ POLL_TIMEOUT = 30  # seconds
 # LLM settings
 MAX_CONVERSATION_HISTORY = 20  # messages to keep in context
 MAX_TOKENS = 2000
+
+# Credential encryption
+CREDENTIAL_ENCRYPTION_KEY = os.getenv("CREDENTIAL_ENCRYPTION_KEY")

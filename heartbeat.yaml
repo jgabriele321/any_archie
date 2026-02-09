@@ -1,0 +1,31 @@
+# Heartbeat Worker Configuration
+# Controls proactive monitoring and check-in behavior
+
+# How often to run heartbeat checks (in minutes)
+# Checks every 2 hours, but only notifies if something actionable changed
+interval_minutes: 120
+
+# Quiet hours - no notifications during these times
+quiet_hours:
+  enabled: true
+  start: 22  # 10 PM (24-hour format)
+  end: 8     # 8 AM
+
+# How long /mute pauses notifications (in minutes)
+mute_duration_minutes: 120
+
+# Individual check configurations
+checks:
+  # Check for important unread emails
+  urgent_emails:
+    enabled: true
+    max_age_hours: 24  # Only check emails from last N hours
+
+  # Check for upcoming calendar events
+  calendar_soon:
+    enabled: true
+    lookahead_minutes: 60  # Alert for events within N minutes
+
+  # Check for overdue/urgent tasks
+  overdue_tasks:
+    enabled: true

@@ -1,19 +1,30 @@
 """
 AnyArchie Command Handlers
 Handles /commands and natural language processing
+Integrates skills system for modular features
 """
 import re
 from datetime import datetime, date
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 from . import db
 from . import llm
 from . import research
 from . import reminders as reminder_module
 from . import email_client
 from . import calendar_client
+from . import credential_manager
+from . import onboarding
+from .skills import route_command, route_llm_actions, clean_llm_response, get_combined_help_text
 
 
-def handle_command(user_id: int, text: str, user: dict) -> str:
+def handle_command(
+    user_id: int, 
+    text: str, 
+    user: dict,
+    send_message: Callable[[int, str], None],
+    send_document: Callable[[int, any, str], None] = None,
+    send_photo: Callable[[int, bytes, str], None] = None,
+) -> Optional[str]:
     """
     Handle a command or message from the user.
     
@@ -21,11 +32,55 @@ def handle_command(user_id: int, text: str, user: dict) -> str:
         user_id: Database user ID
         text: The message text
         user: User dict from database
+        send_message: Function to send message (takes telegram_id, message)
+        send_document: Function to send document
+        send_photo: Function to send photo
     
     Returns:
-        Response message
+        Response message if handled synchronously, None if handled asynchronously
     """
     text = text.strip()
+    telegram_id = user['telegram_id']
+    
+    # Handle /start command - restart onboarding
+    # NOTE: This should only be called for users who completed onboarding.
+    # /start during onboarding is handled in main.py and should not reach here.
+    if text.lower() == "/start" or text.lower().startswith("/start "):
+        # #region agent log
+        import json as _json; open('/Users/giovannigabriele/Documents/Code/AnyArchie/.cursor/debug.log','a').write(_json.dumps({"location":"handlers.py:46","message":"HANDLERS.PY /start handler ENTRY","data":{"user_id":user_id,"telegram_id":telegram_id,"text":text,"onboarding_state":user.get('onboarding_state')},"timestamp":__import__('time').time()*1000,"hypothesisId":"B"})+'\n')
+        # #endregion
+        # Safety check: if user is in onboarding, this shouldn't be called
+        # (main.py should have handled it already)
+        if user.get('onboarding_state', 'new') != 'complete':
+            # #region agent log
+            import json as _json; open('/Users/giovannigabriele/Documents/Code/AnyArchie/.cursor/debug.log','a').write(_json.dumps({"location":"handlers.py:52","message":"HANDLERS.PY /start BLOCKED - user in onboarding","data":{"user_id":user_id,"state":user.get('onboarding_state')},"timestamp":__import__('time').time()*1000,"hypothesisId":"B"})+'\n')
+            # #endregion
+            return None
+        db.update_user(user_id, onboarding_state='new')
+        message, _ = onboarding.get_onboarding_message("new")
+        send_message(telegram_id, message)
+        return None
+    
+    # Check if user is in credential setup flow
+    setup_handled = credential_manager.handle_setup_message(user_id, text, send_message)
+    if setup_handled:
+        return None  # Setup flow handles its own responses
+    
+    # Check if user is in onboarding
+    onboarding_state = user.get('onboarding_state', 'new')
+    if onboarding_state != 'complete':
+        # Skip /start during onboarding - it's already handled
+        if text.lower() == "/start" or text.lower().startswith("/start "):
+            return None
+        
+        # #region agent log
+        import json as _json; open('/Users/giovannigabriele/Documents/Code/AnyArchie/.cursor/debug.log','a').write(_json.dumps({"location":"handlers.py:64","message":"HANDLERS.PY onboarding handler","data":{"user_id":user_id,"state":onboarding_state,"text":text[:30]},"timestamp":__import__('time').time()*1000,"hypothesisId":"B"})+'\n')
+        # #endregion
+        message, is_complete = onboarding.process_onboarding_step(user_id, onboarding_state, text)
+        send_message(telegram_id, message)
+        if is_complete:
+            db.update_user(user_id, onboarding_state='complete')
+        return None
     
     # Command routing
     if text.startswith('/'):
@@ -33,37 +88,114 @@ def handle_command(user_id: int, text: str, user: dict) -> str:
         cmd = cmd_parts[0].lower()
         arg = cmd_parts[1] if len(cmd_parts) > 1 else ""
         
+        # Special commands
+        if cmd == '/setup' and arg.lower().startswith('google'):
+            credential_manager.start_setup(user_id, send_message)
+            return None
+        
+        # Heartbeat commands
+        if cmd == '/mute':
+            from .heartbeat_worker import mute_user_heartbeat
+            from datetime import timedelta
+            import yaml
+            from pathlib import Path
+            
+            config_path = Path(__file__).parent.parent / "heartbeat.yaml"
+            if config_path.exists():
+                with open(config_path) as f:
+                    config = yaml.safe_load(f) or {}
+                duration = config.get("mute_duration_minutes", 120)
+            else:
+                duration = 120
+            
+            mute_user_heartbeat(user_id, duration)
+            send_message(telegram_id, f"🔇 Heartbeat notifications muted for {duration} minutes. Use /unmute to restore.")
+            return None
+        
+        if cmd == '/unmute':
+            from .heartbeat_worker import unmute_user_heartbeat
+            unmute_user_heartbeat(user_id)
+            send_message(telegram_id, "🔔 Heartbeat notifications restored!")
+            return None
+        
+        # Try skills system first
+        skill_handled = route_command(
+            user_id=user_id,
+            command=cmd,
+            args=arg,
+            send_message=send_message,
+            send_document=send_document,
+            send_photo=send_photo,
+        )
+        
+        if skill_handled:
+            return None  # Skill handled it
+        
+        # Fallback to legacy commands for backward compatibility
         if cmd == '/add':
-            return cmd_add(user_id, arg)
+            response = cmd_add(user_id, arg)
+            send_message(telegram_id, response)
+            return None
         elif cmd == '/today':
-            return cmd_today(user_id)
+            response = cmd_today(user_id)
+            send_message(telegram_id, response)
+            return None
         elif cmd == '/done':
-            return cmd_done(user_id, arg)
+            response = cmd_done(user_id, arg)
+            send_message(telegram_id, response)
+            return None
         elif cmd == '/tasks':
-            return cmd_tasks(user_id)
+            response = cmd_tasks(user_id)
+            send_message(telegram_id, response)
+            return None
         elif cmd == '/remind':
-            return cmd_remind(user_id, arg)
+            response = cmd_remind(user_id, arg)
+            send_message(telegram_id, response)
+            return None
         elif cmd == '/reminders':
-            return cmd_list_reminders(user_id)
-        elif cmd == '/search':
-            return cmd_search(arg)
-        elif cmd == '/emails':
-            return cmd_emails(user, arg)
-        elif cmd == '/calendar':
-            return cmd_calendar(user, arg)
+            response = cmd_list_reminders(user_id)
+            send_message(telegram_id, response)
+            return None
         elif cmd == '/clear':
-            return cmd_clear(user_id)
+            response = cmd_clear(user_id)
+            send_message(telegram_id, response)
+            return None
         elif cmd == '/help':
-            return cmd_help(user['assistant_name'])
+            response = cmd_help(user['assistant_name'])
+            send_message(telegram_id, response)
+            return None
         elif cmd == '/context':
-            return cmd_context(user_id)
+            response = cmd_context(user_id)
+            send_message(telegram_id, response)
+            return None
         elif cmd == '/setcontext':
-            return cmd_set_context(user_id, arg)
+            response = cmd_set_context(user_id, arg)
+            send_message(telegram_id, response)
+            return None
         else:
-            return f"Unknown command. Type /help to see available commands."
+            send_message(telegram_id, "Unknown command. Type /help to see available commands.")
+            return None
     
     # Natural language processing via LLM
-    return handle_natural_language(user_id, text, user)
+    response = handle_natural_language(user_id, text, user)
+    send_message(telegram_id, response)
+    return None
+
+
+def handle_photo(user_id: int, photo_bytes: bytes, send_message: Callable[[int, str], None]) -> bool:
+    """
+    Handle photo upload - check if contacts skill can process it as business card.
+    
+    Returns:
+        True if photo was handled, False otherwise
+    """
+    from .skills import get_skill
+    
+    contacts_skill = get_skill("contacts")
+    if contacts_skill:
+        return contacts_skill.handle_photo(user_id, photo_bytes, send_message)
+    
+    return False
 
 
 def cmd_add(user_id: int, task_text: str) -> str:
@@ -237,7 +369,10 @@ def cmd_clear(user_id: int) -> str:
 
 def cmd_help(assistant_name: str) -> str:
     """Show help"""
-    return f"""**{assistant_name} Commands:**
+    # Get combined help from skills
+    skills_help = get_combined_help_text()
+    
+    base_help = f"""**{assistant_name} Commands:**
 
 **Tasks:**
 - `/add <task>` - Add a task
@@ -249,23 +384,22 @@ def cmd_help(assistant_name: str) -> str:
 - `/remind <time> <message>` - Set a reminder
 - `/reminders` - Show pending reminders
 
-**Email:**
-- `/emails` - Email digest (last 24 hours)
-- `/emails 12` - Last 12 hours
-- `/emails 72` - Last 72 hours (3 days)
-
-**Calendar:**
-- `/calendar` - Next 7 days
-- `/calendar today` - Today's schedule
+**Setup:**
+- `/setup google` - Configure Google integrations (Calendar, Gmail, Sheets)
 
 **Other:**
-- `/search <query>` - Search the web
 - `/context` - Show your stored context
 - `/setcontext <key> <value>` - Update context
 - `/clear` - Clear conversation history
 - `/help` - Show this help
 
-Or just chat naturally - I understand things like "add buy milk to my list" or "remind me to call John at 3pm"."""
+Or just chat naturally - I understand things like "add buy milk to my list" or "remind me to call John at 3pm".
+
+---
+
+{skills_help}"""
+    
+    return base_help
 
 
 def cmd_context(user_id: int) -> str:
@@ -354,14 +488,24 @@ def handle_natural_language(user_id: int, text: str, user: dict) -> str:
     # Get LLM response
     response = llm.chat(messages, system_prompt=system_prompt)
     
+    # Process LLM actions (skills can act on the response)
+    action_results = route_llm_actions(user_id, response)
+    
+    # Clean response of action tags
+    cleaned_response = clean_llm_response(response)
+    
+    # Append action results if any
+    if action_results:
+        cleaned_response += "\n\n" + "\n".join(action_results)
+    
     # Store assistant response
-    db.add_message(user_id, "assistant", response)
+    db.add_message(user_id, "assistant", cleaned_response)
     
     # Truncate for Telegram (4096 char limit)
-    if len(response) > 4000:
-        response = response[:3997] + "..."
+    if len(cleaned_response) > 4000:
+        cleaned_response = cleaned_response[:3997] + "..."
     
-    return response
+    return cleaned_response
 
 
 def _looks_like_task_add(text: str) -> bool:

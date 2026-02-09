@@ -7,7 +7,7 @@ import imaplib
 from datetime import datetime, timedelta, timezone
 from email.header import decode_header
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 
 @dataclass
@@ -223,3 +223,55 @@ def get_email_digest(
             lines.append(f"• {sender}: {count}")
     
     return "\n".join(lines)
+
+
+def search_emails(
+    email_address: str,
+    app_password: str,
+    query: str,
+    imap_server: str = "imap.gmail.com",
+    imap_port: int = 993,
+    limit: int = 20
+) -> List[Dict]:
+    """
+    Search emails by subject or sender.
+    
+    Args:
+        email_address: User's email address
+        app_password: Gmail app password
+        query: Search query
+        imap_server: IMAP server address
+        imap_port: IMAP port
+        limit: Maximum results
+    
+    Returns:
+        List of email dicts with subject, from, date
+    """
+    mail = imaplib.IMAP4_SSL(imap_server, imap_port)
+    mail.login(email_address, app_password)
+    mail.select("INBOX")
+    
+    # Search by subject or from
+    search_query = f'(OR SUBJECT "{query}" FROM "{query}")'
+    _, message_numbers = mail.search(None, search_query)
+    
+    results = []
+    for num in reversed(message_numbers[0].split()[-limit:]):
+        try:
+            _, msg_data = mail.fetch(num, "(RFC822)")
+            msg = email.message_from_bytes(msg_data[0][1])
+            
+            subject = _decode_str(msg.get("Subject", "(no subject)"))
+            sender_name, sender_email = _parse_sender(msg.get("From", ""))
+            date_str = msg.get("Date", "")
+            
+            results.append({
+                "subject": subject,
+                "from": sender_name or sender_email,
+                "date": date_str[:30] if date_str else "Unknown"
+            })
+        except Exception:
+            continue
+    
+    mail.logout()
+    return results
